@@ -19,6 +19,9 @@ jobs:
   package:
     runs-on: ubuntu-latest
     
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
     steps:
 
     - name: Checkout
@@ -30,7 +33,11 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Determine Version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      id: version
+      run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Restore
       run: dotnet restore
@@ -40,6 +47,7 @@ jobs:
         dotnet build 
         --configuration Release 
         --no-restore
+        -p:Version=${{ env.VERSION }}
 
     - name: Pack Library
       run: >
@@ -47,6 +55,7 @@ jobs:
         ${{ env.LIBRARY_PROJECT }}
         --configuration Release 
         --no-build 
+        -p:Version=${{ env.VERSION }}
         --output ./artifacts
 
     - name: Publish NuGet Package
@@ -84,22 +93,12 @@ jobs:
 
       - name: Publish Native AOT
         shell: bash
-        run: |
-          dotnet publish ${{ env.CLI_PROJECT }} \
-          --configuration Release \
-          -r ${{ matrix.rid }} \
-          --self-contained true \
-          -p:PublishAot=true \
-          -p:PublishSingleFile=true \ 
-          -o publish
+        run: dotnet publish ${{ env.CLI_PROJECT }} --configuration Release -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:Version=${{ needs.package.outputs.version }} -o publish
 
       - name: Archive (Windows)
         if: matrix.runner == 'windows-latest'
         shell: pwsh
-        run: |
-          Compress-Archive `
-            -Path publish/* `
-            -DestinationPath SecretStore-${{ matrix.rid }}.zip
+        run: Compress-Archive -Path publish/* -DestinationPath SecretStore-${{ matrix.rid }}.zip
 
       - name: Archive (macOS)
         if: matrix.runner == 'macos-latest'
@@ -135,7 +134,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ needs.package.outputs.version }}
           generate_release_notes: true
           files: |
             artifacts/SecretStore-win-x64/SecretStore-win-x64.zip
             artifacts/SecretStore-osx-arm64/SecretStore-osx-arm64.zip
+
