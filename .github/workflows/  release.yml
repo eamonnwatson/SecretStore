@@ -4,7 +4,11 @@ on:
   push:
     tags:
       - 'v*'
-
+      
+permissions:
+  packages: write
+  contents: read
+      
 env:
   DOTNET_VERSION: '10.0.x'
   LIBRARY_PROJECT: src/SecretStore.Core/SecretStore.Core.csproj
