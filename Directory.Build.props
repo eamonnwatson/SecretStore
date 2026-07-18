@@ -1,0 +1,16 @@
+<Project>
+
+  <PropertyGroup>
+
+    <!-- EDIT THESE -->
+    <MajorVersion>1</MajorVersion>
+    <MinorVersion>0</MinorVersion>
+
+    <AssemblyVersion>$(MajorVersion).$(MinorVersion).0.0</AssemblyVersion>
+
+	<!-- Prevent the SDK from appending the Git commit hash to InformationalVersion -->
+	<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+  </PropertyGroup>
+
+</Project>
