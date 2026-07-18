@@ -1,14 +1,19 @@
-﻿if (args.Length == 0)
+﻿// Resolve the store file path from the environment, falling back to ~/.secretstore.
+// This allows CI/CD pipelines and container deployments to redirect the store location
+// without modifying any code or configuration files.
+var storePath = Environment.GetEnvironmentVariable("SECRETSTORE_PATH")
+    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".secretstore");
+
+if (args.Length == 0)
 {
     PrintUsage();
     return 1;
 }
 
-var storePath = Environment.GetEnvironmentVariable("SECRETSTORE_PATH")
-    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".secretstore");
-
 var command = args[0].ToLowerInvariant();
 
+// "init" is the only command that can run without an existing store file.
+// It must be handled before the existence check below to avoid a misleading error message.
 if (command == "init")
 {
     string password = ReadPassword();
@@ -18,6 +23,7 @@ if (command == "init")
     return 0;
 }
 
+// All other commands require the store to already exist.
 if (!File.Exists(storePath))
 {
     Error($"No secret store found at '{storePath}'. Run 'secret init' first.");
@@ -26,6 +32,8 @@ if (!File.Exists(storePath))
 
 try
 {
+    // Decrypt the store once and hold it in memory for the duration of the command.
+    // A CryptographicException here means the password was wrong or the file is corrupted.
     string password = ReadPassword();
     var store = SecretStore.Core.SecretStore.Open(storePath, password);
 
@@ -40,7 +48,10 @@ try
                 }
 
                 var value = store.Get(args[1]);
-                
+
+                // Security invariant: the "get" command intentionally never prints the secret value.
+                // It only confirms whether the path exists, so the command can be used safely
+                // in scripts or shared terminal sessions without risk of accidental value exposure.
                 if (value is null)
                 {
                     Console.Error.WriteLine($"[not found] {args[1]}");
@@ -61,7 +72,7 @@ try
 
                 store.Set(args[1], args[2]);
                 store.Save();
-                
+
                 Console.WriteLine($"[set] {args[1]}");
                 return 0;
             }
@@ -75,7 +86,7 @@ try
                 }
 
                 var removed = store.Remove(args[1]);
-                
+
                 if (!removed) 
                 { 
                     Error($"[not found] {args[1]}"); 
@@ -83,7 +94,7 @@ try
                 }
 
                 store.Save();
-                
+
                 Console.WriteLine($"[removed] {args[1]}");
                 return 0;
             }
@@ -113,13 +124,15 @@ try
                 var json = File.ReadAllText(args[1]);
                 store.ImportJson(json);
                 store.Save();
-                
+
                 Console.WriteLine($"[imported] {args[1]}");
                 return 0;
             }
 
         case "export":
             {
+                // Outputs the fully decrypted secret tree as JSON to stdout.
+                // The caller is responsible for redirecting this to a secure destination.
                 Console.WriteLine(store.ExportJson());
                 return 0;
             }
@@ -140,12 +153,17 @@ try
                     return 1;
                 }
 
+                // Unlike "get", "print" intentionally outputs the raw secret value to stdout
+                // so that it can be consumed by shell scripts (e.g. export KEY=$(secret print aws:key)).
+                // Use with care in environments where stdout may be logged.
                 Console.WriteLine(value);
                 return 0;
             }
 
         case "save":
             {
+                // Re-encrypts and writes the store using a fresh salt and nonce.
+                // Useful after manual edits or as an explicit flush in scripted workflows.
                 store.Save();
                 Console.WriteLine("[saved]");
                 return 0;
@@ -159,6 +177,8 @@ try
 }
 catch (Exception ex)
 {
+    // Surface all unexpected errors (wrong password, corrupt file, I/O failures) through the
+    // same error channel so that callers can always detect failure via a non-zero exit code.
     Error(ex.Message);
     return 1;
 }
@@ -170,6 +190,9 @@ static void Error(string message)
 
 static string ReadPassword()
 {
+    // Allow non-interactive use (CI pipelines, Docker containers) by reading the password
+    // from an environment variable. When the variable is absent, fall back to a masked
+    // interactive prompt so the password is never echoed to the terminal.
     string? pwd = Environment.GetEnvironmentVariable("SECRETSTORE_PASSWORD");
     if (!string.IsNullOrEmpty(pwd))
         return pwd;
@@ -180,6 +203,9 @@ static string ReadPassword()
 
 static string ReadMasked()
 {
+    // Read the password character-by-character with intercept:true so keystrokes are not
+    // echoed, then handle Backspace manually to give the user a normal editing experience.
+    // Writing the newline to stderr ensures it does not appear in stdout captures.
     var sb = new System.Text.StringBuilder();
     while (true)
     {
@@ -197,6 +223,7 @@ static string ReadMasked()
         }
         else if (key.KeyChar != '\0')
         {
+            // Ignore non-character keys (function keys, arrow keys, etc.) that produce a null char.
             sb.Append(key.KeyChar);
         }
     }
@@ -225,4 +252,5 @@ static void PrintUsage()
           SECRETSTORE_PASSWORD  Master password (avoids interactive prompt)
         """);
 }
+
 
