@@ -15,15 +15,17 @@ env:
   CLI_PROJECT: src/SecretStore.CLI/SecretStore.CLI.csproj
 
 jobs:
-  publish:
+
+  package:
     runs-on: ubuntu-latest
+    
     steps:
 
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
   
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -45,7 +47,6 @@ jobs:
         ${{ env.LIBRARY_PROJECT }}
         --configuration Release 
         --no-build 
-        -p:Version=${{ env.VERSION }} 
         --output ./artifacts
 
     - name: Publish NuGet Package
@@ -56,40 +57,85 @@ jobs:
         --api-key ${{ secrets.NUGET_API_KEY }} 
         --skip-duplicate
 
-    - name: Publish Windows CLI (x64)
-      run: >
-        dotnet publish 
-        ${{ env.CLI_PROJECT }} 
-        --configuration Release 
-        -r win-x64
-        --self-contained true
-        -p:PublishSingleFile=true
-        -o publish/win-x64
+  cli:
+    needs: package
 
-    - name: Publish macOS Apple Silicon (arm64)
-      run: >
-        dotnet publish 
-        ${{ env.CLI_PROJECT }} 
-        --configuration Release 
-        -r osx-arm64
-        --self-contained true
-        -p:PublishSingleFile=true
-        -o publish/osx-arm64
+    strategy:
+      matrix:
+        include:
 
-    - name: Zip Windows
-      run: |
-        cd publish
-        zip -r ../SecretStore-win-x64.zip win-x64
+          - runner: windows-latest
+            rid: win-x64
+            archive: zip
 
-    - name: Zip macOS Apple Silicon (arm64)
-      run: |
-        cd publish
-        zip -r ../SecretStore-osx-arm64.zip osx-arm64
+          - runner: macos-latest
+            rid: osx-arm64
+            archive: zip
 
-    - name: Create Release
-      uses: softprops/action-gh-release@v3
-      with:
-        generate_release_notes: true
-        files: |
-          SecretStore-win-x64.zip
-          SecretStore-osx-arm64.zip
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish Native AOT
+        shell: bash
+        run: |
+          dotnet publish ${{ env.CLI_PROJECT }} \
+          --configuration Release \
+          -r ${{ matrix.rid }} \
+          --self-contained true \
+          -p:PublishAot=true \
+          -p:PublishSingleFile=true \ 
+          -o publish
+
+      - name: Archive (Windows)
+        if: matrix.runner == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path publish/* `
+            -DestinationPath SecretStore-${{ matrix.rid }}.zip
+
+      - name: Archive (macOS)
+        if: matrix.runner == 'macos-latest'
+        shell: bash
+        run: |
+          cd publish
+          zip -r ../SecretStore-${{ matrix.rid }}.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecretStore-${{ matrix.rid }}
+          path: SecretStore-${{ matrix.rid }}.zip
+
+  release:
+
+    needs:
+      - package
+      - cli
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Display Files
+        run: find artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/SecretStore-win-x64/SecretStore-win-x64.zip
+            artifacts/SecretStore-osx-arm64/SecretStore-osx-arm64.zip
