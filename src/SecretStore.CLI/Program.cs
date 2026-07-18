@@ -124,6 +124,26 @@ try
                 return 0;
             }
 
+        case "print":
+            {
+                if (args.Length < 2)
+                {
+                    Error("Usage: secret print <path>");
+                    return 1;
+                }
+
+                var value = store.Get(args[1]);
+
+                if (value is null)
+                {
+                    Error($"[not found] {args[1]}");
+                    return 1;
+                }
+
+                Console.WriteLine(value);
+                return 0;
+            }
+
         case "save":
             {
                 store.Save();
@@ -195,6 +215,7 @@ static void PrintUsage()
           set <path> <value>    Store or update a secret
           remove <path>         Delete a secret
           list                  List all secret paths
+          print <path>          Print a secret value to stdout (for scripting)
           import <file.json>    Import a plaintext JSON file
           export                Output the decrypted JSON
           save                  Explicitly write the store to disk

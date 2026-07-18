@@ -45,6 +45,10 @@ secret set aws:prod:access_key_id AKIAIOSFODNN7EXAMPLE
 secret get aws:prod:access_key_id
 # [found] aws:prod:access_key_id
 
+# Print a secret value to stdout (for scripting)
+secret print aws:prod:access_key_id
+# AKIAIOSFODNN7EXAMPLE
+
 # List all stored paths
 secret list
 
@@ -58,6 +62,7 @@ secret remove aws:prod:access_key_id
 |---|---|
 | `secret init` | Create a new encrypted store |
 | `secret get <path>` | Confirm a secret exists (`[found]` / `[not found]`) |
+| `secret print <path>` | Print a secret value to stdout (for scripting) |
 | `secret set <path> <value>` | Store or update a secret |
 | `secret remove <path>` | Delete a secret |
 | `secret list` | List all secret paths |
@@ -65,7 +70,7 @@ secret remove aws:prod:access_key_id
 | `secret export` | Print the decrypted store as JSON |
 | `secret save` | Explicitly flush the in-memory store to disk |
 
-> **Note:** `get` intentionally never prints the secret value — it only confirms existence.
+> **Note:** `get` intentionally never prints the secret value — it only confirms existence. Use `print` when you need the value in a script.
 
 ## Environment Variables
 
@@ -74,12 +79,33 @@ secret remove aws:prod:access_key_id
 | `SECRETSTORE_PATH` | Path to the store file (default: `~/.secretstore`) |
 | `SECRETSTORE_PASSWORD` | Master password — skips the interactive prompt |
 
-Setting `SECRETSTORE_PASSWORD` is useful in CI/CD pipelines:
+Setting `SECRETSTORE_PASSWORD` is useful in CI/CD pipelines and scripts:
 
 ```powershell
 $env:SECRETSTORE_PASSWORD = "hunter2"
 secret get database:host
 ```
+
+## Scripting & Automation
+
+Use `print` to capture a secret value directly into a variable. All prompts and errors are written to `stderr`, so they never pollute the captured output:
+
+```powershell
+# PowerShell — capture a secret non-interactively
+$env:SECRETSTORE_PASSWORD = "hunter2"
+$password = & secret print Snowflake:Production:Password
+
+# Check the exit code if the path might not exist
+if ($LASTEXITCODE -ne 0) { throw "Secret not found" }
+```
+
+```bash
+# Bash
+export SECRETSTORE_PASSWORD="hunter2"
+password=$(secret print Snowflake:Production:Password)
+```
+
+> **Security note:** Avoid storing secrets in shell variables longer than necessary. Pass them directly to the consuming command where possible.
 
 ## Secret Paths
 
