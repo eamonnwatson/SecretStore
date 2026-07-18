@@ -1,6 +1,6 @@
 <Project>
 
-  <Target Name="GeneratePublishVersion" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+  <Target Name="GeneratePublishVersion" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;Pack">
 
     <PropertyGroup>
       <BuildYear>$([System.DateTime]::Now.ToString('yyyy'))</BuildYear>

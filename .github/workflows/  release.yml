@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  LIBRARY_PROJECT: src/SecretStore.Core/SecretStore.Core.csproj
+  CLI_PROJECT: src/SecretStore.CLI/SecretStore.CLI.csproj
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+  
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Determine Version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: >
+        dotnet build 
+        --configuration Release 
+        --no-restore
+
+    - name: Pack Library
+      run: >
+        dotnet pack 
+        ${{ env.LIBRARY_PROJECT }}
+        --configuration Release 
+        --no-build 
+        -p:Version=${{ env.VERSION }} 
+        --output ./artifacts
+
+    - name: Publish NuGet Package
+      run: >
+        dotnet nuget push 
+        "./artifacts/*.nupkg" 
+        --source https://nuget.pkg.github.com/eamonnwatson/index.json 
+        --api-key ${{ secrets.NUGET_API_KEY }} 
+        --skip-duplicate
+
+    - name: Publish Windows CLI (x64)
+      run: >
+        dotnet publish 
+        ${{ env.CLI_PROJECT }} 
+        --configuration Release 
+        -r win-x64
+        --self-contained true
+        -p:PublishSingleFile=true
+        -o publish/win-x64
+
+    - name: Publish macOS Apple Silicon (arm64)
+      run: >
+        dotnet publish 
+        ${{ env.CLI_PROJECT }} 
+        --configuration Release 
+        -r osx-arm64
+        --self-contained true
+        -p:PublishSingleFile=true
+        -o publish/osx-arm64
+
+    - name: Zip Windows
+      run: |
+        cd publish
+        zip -r ../SecretStore-win-x64.zip win-x64
+
+    - name: Zip macOS Apple Silicon (arm64)
+      run: |
+        cd publish
+        zip -r ../SecretStore-osx-arm64.zip osx-arm64
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v3
+      with:
+        generate_release_notes: true
+        files: |
+          SecretStore-win-x64.zip
+          SecretStore-osx-arm64.zip
