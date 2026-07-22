@@ -1,7 +1,15 @@
-﻿// Resolve the store file path from the environment, falling back to ~/.secretstore.
-// This allows CI/CD pipelines and container deployments to redirect the store location
-// without modifying any code or configuration files.
-var storePath = Environment.GetEnvironmentVariable("SECRETSTORE_PATH")
+﻿// Parse and strip any --file/-f and --password/-p flags from the arguments.
+// The extracted flag values take highest priority in the resolution chain.
+args = ParseFlags(args, out string? flagFile, out string? flagPassword);
+
+// Resolve the store file path with a three-tier priority:
+// 1. --file / -f flag (if provided)
+// 2. SECRETSTORE_PATH environment variable
+// 3. Default: ~/.secretstore
+// This allows the path to be overridden at the command line, via environment
+// (useful for CI/CD pipelines and container deployments), or defaulted automatically.
+var storePath = flagFile
+    ?? Environment.GetEnvironmentVariable("SECRETSTORE_PATH")
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".secretstore");
 
 if (args.Length == 0)
@@ -16,7 +24,7 @@ var command = args[0].ToLowerInvariant();
 // It must be handled before the existence check below to avoid a misleading error message.
 if (command == "init")
 {
-    string password = ReadPassword();
+    string password = ReadPassword(flagPassword);
     var store = SecretStore.Core.SecretStore.Create(storePath, password);
     store.Save();
     Console.WriteLine($"Secret store initialised at: {storePath}");
@@ -34,7 +42,7 @@ try
 {
     // Decrypt the store once and hold it in memory for the duration of the command.
     // A CryptographicException here means the password was wrong or the file is corrupted.
-    string password = ReadPassword();
+    string password = ReadPassword(flagPassword);
     var store = SecretStore.Core.SecretStore.Open(storePath, password);
 
     switch (command)
@@ -188,11 +196,52 @@ static void Error(string message)
     Console.Error.WriteLine($"error: {message}");
 }
 
-static string ReadPassword()
+static string[] ParseFlags(string[] args, out string? flagFile, out string? flagPassword)
 {
-    // Allow non-interactive use (CI pipelines, Docker containers) by reading the password
-    // from an environment variable. When the variable is absent, fall back to a masked
-    // interactive prompt so the password is never echoed to the terminal.
+    // Scan the arguments for --file/-f and --password/-p, extract their values,
+    // and return a new array containing only the positional arguments (command + operands).
+    // This allows flags to appear anywhere in the command line while keeping the
+    // existing positional-arg logic unchanged.
+    flagFile = null;
+    flagPassword = null;
+
+    var positional = new List<string>();
+
+    for (int i = 0; i < args.Length; i++)
+    {
+        var arg = args[i];
+
+        if ((arg == "--file" || arg == "-f") && i + 1 < args.Length)
+        {
+            flagFile = args[i + 1];
+            i++; // skip the value
+        }
+        else if ((arg == "--password" || arg == "-p") && i + 1 < args.Length)
+        {
+            flagPassword = args[i + 1];
+            i++; // skip the value
+        }
+        else
+        {
+            positional.Add(arg);
+        }
+    }
+
+    return positional.ToArray();
+}
+
+static string ReadPassword(string? flagPassword)
+{
+    // Resolve the master password with a three-tier priority:
+    // 1. --password / -p flag (if provided)
+    // 2. SECRETSTORE_PASSWORD environment variable
+    // 3. Interactive masked prompt
+    // This allows non-interactive use (CI pipelines, Docker containers, inline scripting)
+    // while still providing a secure fallback for interactive terminal sessions where
+    // the password is never echoed.
+    if (!string.IsNullOrEmpty(flagPassword))
+        return flagPassword;
+
     string? pwd = Environment.GetEnvironmentVariable("SECRETSTORE_PASSWORD");
     if (!string.IsNullOrEmpty(pwd))
         return pwd;
@@ -234,7 +283,11 @@ static string ReadMasked()
 static void PrintUsage()
 {
     Console.Error.WriteLine("""
-        usage: secret <command> [options]
+        usage: secret [options] <command> [args]
+
+        Global options:
+          --file, -f <path>     Path to the store file (overrides SECRETSTORE_PATH)
+          --password, -p <pwd>  Master password (overrides SECRETSTORE_PASSWORD)
 
         Commands:
           init                  Create a new encrypted secret store
