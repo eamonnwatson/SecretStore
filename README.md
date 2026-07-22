@@ -56,6 +56,20 @@ secret list
 secret remove aws:prod:access_key_id
 ```
 
+## Global Options
+
+These flags can appear anywhere on the command line and take priority over environment variables:
+
+| Flag | Description |
+|---|---|
+| `--file`, `-f` `<path>` | Path to the store file (overrides `SECRETSTORE_PATH`) |
+| `--password`, `-p` `<pwd>` | Master password (overrides `SECRETSTORE_PASSWORD`) |
+
+```powershell
+# Example: use a specific store file and password inline
+secret --file ./my.store --password hunter2 list
+```
+
 ## Commands
 
 | Command | Description |
@@ -66,9 +80,9 @@ secret remove aws:prod:access_key_id
 | `secret set <path> <value>` | Store or update a secret |
 | `secret remove <path>` | Delete a secret |
 | `secret list` | List all secret paths |
-| `secret import <file.json>` | Replace the store contents from a plaintext JSON file |
+| `secret import <file.json>` | Import a plaintext JSON file into the store |
 | `secret export` | Print the decrypted store as JSON |
-| `secret save` | Explicitly flush the in-memory store to disk |
+| `secret save` | Re-encrypt and write the store to disk |
 
 > **Note:** `get` intentionally never prints the secret value — it only confirms existence. Use `print` when you need the value in a script.
 
@@ -78,6 +92,12 @@ secret remove aws:prod:access_key_id
 |---|---|
 | `SECRETSTORE_PATH` | Path to the store file (default: `~/.secretstore`) |
 | `SECRETSTORE_PASSWORD` | Master password — skips the interactive prompt |
+
+Both the store path and master password resolve with a three-tier priority:
+
+1. Command-line flag (`--file` / `--password`)
+2. Environment variable (`SECRETSTORE_PATH` / `SECRETSTORE_PASSWORD`)
+3. Default (`~/.secretstore`) or interactive prompt
 
 Setting `SECRETSTORE_PASSWORD` is useful in CI/CD pipelines and scripts:
 
